@@ -1,16 +1,23 @@
 CC = g++
 CXXFLAGS = -g -std=c++11 -I./3rdparty/libtins/include/ -L./3rdparty/libtins/lib -ltins -lpcap
 
-all: fuck.elf
+all: client.elf server.elf
 	@echo "Done"
 
-fuck.elf: tuntest.o
-	$(CC) tuntest.o $(CXXFLAGS) -o $@ 
+client.elf: client.o socketwrapper.h
+	$(CC) client.o $(CXXFLAGS) -o $@ 
+
+server.elf: server.o socketwrapper.h
+	$(CC) server.o $(CXXFLAGS) -o $@ 
 	
-tuntest.o: tuntest.cpp
-	$(CC) tuntest.cpp -c $(CXXFLAGS)
+client.o: client.cpp
+	$(CC) client.cpp -c $(CXXFLAGS)
+
+server.o: server.cpp
+	$(CC) server.cpp -c $(CXXFLAGS)
 
 clean:
 	rm ./*.elf
+	rm ./*.o
 
 .PHONY: clean all

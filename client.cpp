@@ -10,6 +10,9 @@
 #include <sys/socket.h>
 #include <linux/if.h>
 #include <linux/if_tun.h>
+/* networking */
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 /* cxx */
 #include <iostream>
@@ -17,14 +20,14 @@
 using namespace std;
 
 /* 3rd party libs */
+#include "socketwrapper.h"
 #include <tins/tins.h>
 
 using namespace Tins;
 
 typedef unsigned char   byte;
 
-int tun_open(const char *devname)
-{
+int tun_open(const char *devname) {
   struct ifreq ifr;
   int fd, err;
 
@@ -85,57 +88,43 @@ void hex_dump(const char *buf, int len) {
         printf("%s\n",binstr);
     }
 }
-/*
-bool doo(PDU &some_pdu) {
-  // Search for it. If there is no IP PDU in the packet, 
-  // the loop goes on
-  IP &ip = some_pdu.rfind_pdu<IP>(); // non-const works as well
-  cout << "Destination address: " << ip.dst_addr() << std::endl;
-  PacketSender sender("dummytun");
-  auto tmp_src = ip.src_addr();
-  auto tmp_dst = ip.dst_addr();
-  ip.src_addr(tmp_dst);
-  ip.dst_addr(tmp_src);
-  sender.send(some_pdu);
-  return true;
-}
-*/
+
 int main(int argc, char *argv[])
 {
-  int fd, nbytes;
+  int socketfd, tunfd, nbytes;
   char buf[1600];
 
-  fd = tun_open("dummytun");
+  // dgram
+  struct sockaddr_in srvaddr;
+  socketfd = Socket(AF_INET, SOCK_DGRAM, 0);
+  bzero(&srvaddr, sizeof(srvaddr));
+  srvaddr.sin_family = AF_INET;
+	srvaddr.sin_port = htons(SERV_PORT);
+	inet_pton(AF_INET, "127.0.0.1", &srvaddr.sin_addr);
+
+  // tun
+  tunfd = tun_open("dummytun");
   //system("ifconfig dummytun up");
+  sendto(socketfd, "startfuck", 9, 0, (sockaddr*)&srvaddr, sizeof(srvaddr));
   system("route add 123.123.123.123 dummytun");
-  //Sniffer sniffer("dummytun");
-  //sniffer.sniff_loop(doo);
 
   while(1) {
-    nbytes = read(fd, buf, sizeof(buf));
+    nbytes = read(tunfd, buf, sizeof(buf));
     printf("Read %d bytes from dummytun\n", nbytes);
     //hex_dump(buf, nbytes);
     RawPDU p((uint8_t *)buf, nbytes);
     try {
       IP ip(p.to<IP>());
       cout << "IP Packet: " << ip.src_addr() << " -> " << ip.dst_addr() << std::endl;
-      Tins::IPv4Address srcaddr = ip.src_addr();
-      ip.src_addr(ip.dst_addr());
-      ip.dst_addr(srcaddr);
-      ICMP &icmp = ip.rfind_pdu<ICMP>();
-      icmp.type(ICMP::ECHO_REPLY);
-      write(fd, ip.serialize().data(),ip.serialize().size());
+      sendto(socketfd, buf, nbytes, 0, (sockaddr*)&srvaddr, sizeof(srvaddr));
+      sendto(socketfd, "fuck", 4, 0, (sockaddr*)&srvaddr, sizeof(srvaddr));
+      int size84 = recvfrom(socketfd, buf, 1600, 0, NULL, NULL);
+      if (size84 == 84) {
+        write(tunfd, buf, size84);
+      }
     } catch (...) {
       continue;
     }
-
-
-    // IP *ip = p.find_pdu<IP>();
-    // if (ip != NULL) {
-    //   cout << "Destination address: " << ip->dst_addr() << std::endl;
-    // }
-    //IP *IpPDU = new IP((uint8_t *)buf, nbytes);
-    //cout << "Destination address: " << IpPDU->dst_addr() << std::endl;
   }
   return 0;
 }
