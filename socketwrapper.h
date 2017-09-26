@@ -5,12 +5,57 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/ioctl.h> /* ioctl() */
+/* includes for struct ifreq, etc */
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <linux/if.h>
+#include <linux/if_tun.h>
+/* networking */
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #define SERV_PORT	9877
 #define	MAXLINE		4096
 #define LISTENQ SOMAXCONN /* defined in linux kernel */
 
 typedef struct sockaddr SA;
+
+typedef unsigned char   byte;
+
+void hex_dump(const char *buf, int len) {
+	const char* addr = buf;
+    int i,j,k;
+    char binstr[80];
+ 
+    for (i=0;i<len;i++) {
+        if (0==(i%16)) {
+            sprintf(binstr,"%08x -",i+addr);
+            sprintf(binstr,"%s %02x",binstr,(byte)buf[i]);
+        } else if (15==(i%16)) {
+            sprintf(binstr,"%s %02x",binstr,(byte)buf[i]);
+            sprintf(binstr,"%s  ",binstr);
+            for (j=i-15;j<=i;j++) {
+                sprintf(binstr,"%s%c",binstr,('!'<buf[j]&&buf[j]<='~')?buf[j]:'.');
+            }
+            printf("%s\n",binstr);
+        } else {
+            sprintf(binstr,"%s %02x",binstr,(byte)buf[i]);
+        }
+    }
+    if (0!=(i%16)) {
+        k=16-(i%16);
+        for (j=0;j<k;j++) {
+            sprintf(binstr,"%s   ",binstr);
+        }
+        sprintf(binstr,"%s  ",binstr);
+        k=16-k;
+        for (j=i-k;j<i;j++) {
+            sprintf(binstr,"%s%c",binstr,('!'<buf[j]&&buf[j]<='~')?buf[j]:'.');
+        }
+        printf("%s\n",binstr);
+    }
+}
 
 int Socket(int family, int type, int protocol) {
     int n;
@@ -70,5 +115,35 @@ int set_nonblocking(int fd) {
 		flags = 0;  
 	return fcntl(fd, F_SETFL, flags | O_NONBLOCK);  
 } 
+
+/* TUN device/interface utils */
+
+int tun_open(const char *devname) {
+	struct ifreq ifr;
+	int fd, err;
+
+	if ( (fd = open("/dev/net/tun", O_RDWR)) == -1 ) {
+		perror("open /dev/net/tun");exit(1);
+	}
+	memset(&ifr, 0, sizeof(ifr));
+	ifr.ifr_flags = IFF_TUN | IFF_NO_PI | IFF_UP | IFF_RUNNING;
+	strncpy(ifr.ifr_name, devname, IFNAMSIZ);  
+
+	/* ioctl will use if_name as the name of TUN 
+	* interface to open: "tun0", etc. */
+	if ( (err = ioctl(fd, TUNSETIFF, (void *) &ifr)) == -1 ) {
+		perror("ioctl TUNSETIFF");close(fd);exit(1);
+	}
+
+	if ( (err = ioctl(socket(PF_INET, SOCK_DGRAM, 0), SIOCSIFFLAGS, (void *) &ifr)) == -1 ) {
+		perror("ioctl SIOCSIFFLAGS");close(fd);exit(1);
+	}
+
+	/* After the ioctl call the fd is "connected" to tun device specified
+	* by devname */
+	printf("Device %s opened\n", ifr.ifr_name);
+
+	return fd;
+}
 
 #endif /* __UNP_WRAPPER */
