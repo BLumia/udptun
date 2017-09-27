@@ -1,5 +1,5 @@
 CC = g++
-CXXFLAGS = -g -std=c++11 -I./3rdparty/libtins/include/ -L./3rdparty/libtins/lib -ltins -lpcap
+CXXFLAGS = -g -std=c++11 -I./3rdparty/libtins/include/ -L./3rdparty/libtins/lib -ltins
 
 all: client.elf server.elf
 	@echo "Done"
