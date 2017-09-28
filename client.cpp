@@ -19,13 +19,15 @@ using namespace Tins;
 char remote_ip[16] = ""; 
 
 void process_arguments(int argc, char **argv) {
+	bool argMissing = true;
 	int opt;
 	
 	while (~(opt = getopt(argc, argv, "hHs:S:"))) { 
 		switch(opt) {
 			case 's': case 'S':
 				if (optarg) {
-          strncpy(remote_ip,optarg,15);
+					strncpy(remote_ip,optarg,15);
+					argMissing = false;
 				} else {
 					fputs("?\n", stdout);
 					exit(0);
@@ -36,35 +38,40 @@ void process_arguments(int argc, char **argv) {
 				exit(0);
 				//break;
 		}
-  }
+	}
+
+	if (argMissing) {
+		fputs("?\n", stdout);
+		exit(0);
+	}
 } 
 
 int main(int argc, char *argv[])
 {
-  int socketfd, tunfd, nbytes;
-  char buf[1600];
+	int socketfd, tunfd, nbytes;
+	char buf[1600];
 
-  process_arguments(argc, argv);
+	process_arguments(argc, argv);
 
-  // dgram
-  struct sockaddr_in srvaddr;
-  socketfd = Socket(AF_INET, SOCK_DGRAM/* | SOCK_NONBLOCK*/, 0);
-  bzero(&srvaddr, sizeof(srvaddr));
-  srvaddr.sin_family = AF_INET;
+	// dgram
+	struct sockaddr_in srvaddr;
+	socketfd = Socket(AF_INET, SOCK_DGRAM/* | SOCK_NONBLOCK*/, 0);
+	bzero(&srvaddr, sizeof(srvaddr));
+	srvaddr.sin_family = AF_INET;
 	srvaddr.sin_port = htons(SERV_PORT);
 	inet_pton(AF_INET, remote_ip, &srvaddr.sin_addr);
 
-  // tun
-  tunfd = tun_open("clienttun");
-  system("route add 123.123.123.123 clienttun");
+	// tun
+	tunfd = tun_open("clienttun");
+	system("route add 123.123.123.123 clienttun");
 
-  fputs("Client now running in UDP mode.\n", stdout);
+	fputs("Client now running in UDP mode.\n", stdout);
 
-  int maxfd = (socketfd > tunfd) ? socketfd : tunfd;
+	int maxfd = (socketfd > tunfd) ? socketfd : tunfd;
 
-  while(1) {
+	while(1) {
 
-    fd_set rd_set;
+		fd_set rd_set;
 		
 		FD_ZERO(&rd_set);
 		FD_SET(tunfd, &rd_set); FD_SET(socketfd, &rd_set);
@@ -75,25 +82,25 @@ int main(int argc, char *argv[])
 			perror("select()"); exit(1);
 		}
 
-    if(FD_ISSET(tunfd, &rd_set)) {
-      nbytes = read(tunfd, buf, sizeof(buf));
-      printf("Read %d bytes from clienttun\n", nbytes);
-      //hex_dump(buf, nbytes);
-      RawPDU p((uint8_t *)buf, nbytes);
-      try {
-        IP ip(p.to<IP>());
-        cout << "IP Packet: " << ip.src_addr() << " -> " << ip.dst_addr() << std::endl;
-        sendto(socketfd, buf, nbytes, 0, (sockaddr*)&srvaddr, sizeof(srvaddr));
-      } catch (...) {
-        continue;
-      }
-    }
+		if(FD_ISSET(tunfd, &rd_set)) {
+			nbytes = read(tunfd, buf, sizeof(buf));
+			printf("Read %d bytes from clienttun\n", nbytes);
+			//hex_dump(buf, nbytes);
+			RawPDU p((uint8_t *)buf, nbytes);
+			try {
+				IP ip(p.to<IP>());
+				cout << "IP Packet: " << ip.src_addr() << " -> " << ip.dst_addr() << std::endl;
+				sendto(socketfd, buf, nbytes, 0, (sockaddr*)&srvaddr, sizeof(srvaddr));
+			} catch (...) {
+				continue;
+			}
+		}
 
-    if(FD_ISSET(socketfd, &rd_set)) { 
-      int size84 = recvfrom(socketfd, buf, 1600, 0, NULL, NULL);
-      printf("Recv %d bytes from udp socket\n", nbytes);
-      write(tunfd, buf, size84);
-    }
-  }
-  return 0;
+		if(FD_ISSET(socketfd, &rd_set)) { 
+			int size84 = recvfrom(socketfd, buf, 1600, 0, NULL, NULL);
+			printf("Recv %d bytes from udp socket\n", nbytes);
+			write(tunfd, buf, size84);
+		}
+	}
+	return 0;
 }
