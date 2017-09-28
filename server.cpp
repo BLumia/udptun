@@ -22,22 +22,17 @@ typedef std::pair<IPv4Address, uint16_t> AddrPort;
 
 int tunfd;
 char buf[1600];
-in_addr_t cli_v4addr, srv_v4addr;
+in_addr_t cli_v4addr, tun_v4addr;
 map<AddrPort, AddrPort> snat_map;
 struct sockaddr_in cliaddr, srvaddr;
 
 void process_arguments(int argc, char **argv) {
 	int opt;
 	
-	while (~(opt = getopt(argc, argv, "hHs:S:"))) { 
+	while (~(opt = getopt(argc, argv, "rRhH"))) { 
 		switch(opt) {
-			case 's': case 'S':
-				if (optarg) {
-					srv_v4addr = inet_addr(optarg);
-				} else {
-					fputs("?\n", stdout);
-					exit(0);
-				}
+			case 'r': case 'R':
+				system("iptables -t nat -A POSTROUTING -s 192.168.61.0/24 -o eth0 -j MASQUERADE");
 				break;
 			case 'h': case 'H':
 				fputs("?\n", stdout);
@@ -52,7 +47,9 @@ void mainloop(int socketfd, SA* pcliaddr, socklen_t clilen) {
 	socklen_t len;
 	char buf[MAXLINE+1];
 	
-	int maxfd = (socketfd > socketfd)? socketfd : socketfd;
+	int maxfd = (socketfd > tunfd)? socketfd : tunfd;
+
+	tun_v4addr = inet_addr("192.168.61.123");
 
 	for(;;) {
 		fd_set rd_set;
@@ -70,12 +67,12 @@ void mainloop(int socketfd, SA* pcliaddr, socklen_t clilen) {
 			// data avaliable from tun dev
 			nbytes = read(tunfd, buf, sizeof(buf));
 			if (nbytes > 0) {
-				printf("Read %d bytes from servertun\n", nbytes);
+				printf("[Cli-TUN]    [Srv-TUN]<<< [Remote] : Read %d bytes from servertun\n", nbytes);
 				//hex_dump(buf, nbytes);
 				RawPDU p((uint8_t *)buf, nbytes);
 				try {
 					IP ip(p.to<IP>());
-					cout << "IP Packet: " << ip.src_addr() << " -> " << ip.dst_addr() << std::endl;
+					cout << "IP Packet: " << ip.src_addr() << " <-  " << ip.dst_addr() << std::endl;
 					
 					// dNAT
 					AddrPort srcaddr, dstaddr;
@@ -94,7 +91,7 @@ void mainloop(int socketfd, SA* pcliaddr, socklen_t clilen) {
 					PDU::serialization_type serval = ip.serialize();
 					memcpy(buf, serval.data(), serval.size());
 					sendto(socketfd, buf, serval.size(), 0, pcliaddr, clilen);
-					printf("Sent %d bytes to client\n", serval.size());
+					printf("[Cli-TUN]<<< [Srv-TUN]    [Remote] : Sent %d bytes to client\n", serval.size());
 					
 				} catch (...) {
 					continue;
@@ -107,29 +104,37 @@ void mainloop(int socketfd, SA* pcliaddr, socklen_t clilen) {
 			len = clilen;
 			n = recvfrom(socketfd, buf, MAXLINE, 0, pcliaddr, &len);
 
-			printf("Read %d bytes from udp socket\n", n);
+			printf("[Cli-TUN] >>>[Srv-TUN]    [Remote] : Read %d bytes from udp socket\n", n);
 			//hex_dump(buf, n);
 			RawPDU p((uint8_t *)buf, n);
 			try {
 				IP ip(p.to<IP>());
-				TCP& tcp = ip.rfind_pdu<TCP>();
-				cout << "IP Packet: " << ip.src_addr() << " -> " << ip.dst_addr() << std::endl;
+				cout << "IP Packet: " << ip.src_addr() << "  -> " << ip.dst_addr() << std::endl;
 
 				// save source addr info
 				AddrPort srcaddr, dstaddr;
-				srcaddr = std::make_pair(ip.src_addr(), tcp.sport());
-				dstaddr = std::make_pair(ip.dst_addr(), tcp.dport());
-				snat_map[dstaddr] = srcaddr;
+				if (ip.protocol() == IPPROTO_TCP) {
+					TCP& tcp = ip.rfind_pdu<TCP>();
+					srcaddr = std::make_pair(ip.src_addr(), tcp.sport());
+					dstaddr = std::make_pair(ip.dst_addr(), tcp.dport());
+					snat_map[dstaddr] = srcaddr;
+				}
+				if (ip.protocol() == IPPROTO_UDP) {
+					UDP& udp = ip.rfind_pdu<UDP>();
+					srcaddr = std::make_pair(ip.src_addr(), udp.sport());
+					dstaddr = std::make_pair(ip.dst_addr(), udp.dport());
+					snat_map[dstaddr] = srcaddr;
+				}
+				// notice that ICMP dont have a port.
 
 				// sNAT
-				ip.src_addr(IPv4Address(srv_v4addr)); // src_addr = srv ip
+				ip.src_addr(IPv4Address(tun_v4addr)); // src_addr = tun ip
 				// no port modify now
 
 				// write to tun device (to send packet)
 				PDU::serialization_type serval = ip.serialize();
-				memcpy(buf, serval.data(), serval.size());
-				write(tunfd, buf, serval.size());
-				printf("Sent %d bytes from servertun\n", serval.size());
+				write(tunfd, serval.data(), serval.size());
+				printf("[Cli-TUN]    [Srv-TUN] >>>[Remote] : Sent %d bytes from servertun\n", serval.size());
 				
 			} catch (...) {
 				continue;
