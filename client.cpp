@@ -16,18 +16,43 @@ using namespace std;
 
 using namespace Tins;
 
+char remote_ip[16] = ""; 
+
+void process_arguments(int argc, char **argv) {
+	int opt;
+	
+	while (~(opt = getopt(argc, argv, "hHs:S:"))) { 
+		switch(opt) {
+			case 's': case 'S':
+				if (optarg) {
+          strncpy(remote_ip,optarg,15);
+				} else {
+					fputs("?\n", stdout);
+					exit(0);
+				}
+				break;
+			case 'h': case 'H':
+				fputs("?\n", stdout);
+				exit(0);
+				//break;
+		}
+  }
+} 
+
 int main(int argc, char *argv[])
 {
   int socketfd, tunfd, nbytes;
   char buf[1600];
 
+  process_arguments(argc, argv);
+
   // dgram
   struct sockaddr_in srvaddr;
-  socketfd = Socket(AF_INET, SOCK_DGRAM, 0);
+  socketfd = Socket(AF_INET, SOCK_DGRAM/* | SOCK_NONBLOCK*/, 0);
   bzero(&srvaddr, sizeof(srvaddr));
   srvaddr.sin_family = AF_INET;
 	srvaddr.sin_port = htons(SERV_PORT);
-	inet_pton(AF_INET, "150.95.135.50", &srvaddr.sin_addr);
+	inet_pton(AF_INET, remote_ip, &srvaddr.sin_addr);
 
   // tun
   tunfd = tun_open("clienttun");
@@ -35,7 +60,7 @@ int main(int argc, char *argv[])
 
   fputs("Client now running in UDP mode.\n", stdout);
 
-  int maxfd = (socketfd > socketfd)? socketfd : socketfd;
+  int maxfd = (socketfd > tunfd) ? socketfd : tunfd;
 
   while(1) {
 

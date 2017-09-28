@@ -38,7 +38,6 @@ void process_arguments(int argc, char **argv) {
 					fputs("?\n", stdout);
 					exit(0);
 				}
-				fputs("?\n", stdout);
 				break;
 			case 'h': case 'H':
 				fputs("?\n", stdout);
